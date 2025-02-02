@@ -5,6 +5,8 @@ import java.lang.annotation.Annotation;
 import java.util.EnumSet;
 import java.util.Set;
 import javax.lang.model.type.TypeKind;
+
+import org.checkerframework.checker.compilermsgs.qual.CompilerMessageKey;
 import org.checkerframework.checker.dividebyzero.qual.*;
 import org.checkerframework.common.basetype.BaseTypeChecker;
 import org.checkerframework.common.basetype.BaseTypeVisitor;
@@ -13,11 +15,11 @@ public class DivByZeroVisitor extends BaseTypeVisitor<DivByZeroAnnotatedTypeFact
 
   /** Set of operators we care about */
   private static final Set<Tree.Kind> DIVISION_OPERATORS =
-      EnumSet.of(
-          /* x /  y */ Tree.Kind.DIVIDE,
-          /* x /= y */ Tree.Kind.DIVIDE_ASSIGNMENT,
-          /* x %  y */ Tree.Kind.REMAINDER,
-          /* x %= y */ Tree.Kind.REMAINDER_ASSIGNMENT);
+          EnumSet.of(
+                  /* x /  y */ Tree.Kind.DIVIDE,
+                  /* x /= y */ Tree.Kind.DIVIDE_ASSIGNMENT,
+                  /* x %  y */ Tree.Kind.REMAINDER,
+                  /* x %= y */ Tree.Kind.REMAINDER_ASSIGNMENT);
 
   /**
    * Determine whether to report an error at the given binary AST node. The error text is defined in
@@ -38,6 +40,15 @@ public class DivByZeroVisitor extends BaseTypeVisitor<DivByZeroAnnotatedTypeFact
     return hasAnnotation(node.getRightOperand(), ZeroInt.class)
             || hasAnnotation(node.getRightOperand(), Top.class)
             || hasAnnotation(node.getRightOperand(), Bottom.class);
+  }
+
+  private boolean assignmentErrorAt(Tree lhs, Tree rhs) {
+    // consider assignment case only
+
+    System.out.println("Considering assignment of " + atypeFactory.getAnnotatedType(lhs)
+            + " = " + atypeFactory.getAnnotatedType(rhs)
+            + " with verdict: " + isParent(lhs, rhs));
+    return !isParent(lhs, rhs);
   }
 
   /**
@@ -75,11 +86,37 @@ public class DivByZeroVisitor extends BaseTypeVisitor<DivByZeroAnnotatedTypeFact
     return atypeFactory.getAnnotatedType(node).hasPrimaryAnnotation(c);
   }
 
+  private boolean isParent(Tree rhs, Tree lhs) {
+    boolean result = hasAnnotation(lhs, Top.class);
+    if (hasAnnotation(rhs, Top.class)) {
+      return result;
+    }
+
+    if (hasAnnotation(rhs, NonZeroInt.class)) {
+      return result || hasAnnotation(lhs, NonZeroInt.class);
+    }
+    if (hasAnnotation(rhs, ZeroInt.class)) {
+      return result || hasAnnotation(lhs, ZeroInt.class);
+    }
+
+    // only bottom left possible for rhs
+    return true;
+  }
+
   // ========================================================================
   // Checker Framework plumbing
 
   public DivByZeroVisitor(BaseTypeChecker c) {
     super(c);
+  }
+
+  @Override
+  protected boolean commonAssignmentCheck(Tree varTree, ExpressionTree valueExpTree, @CompilerMessageKey String errorKey, Object... extraArgs) {
+    System.out.println("visiting assignment type: " + varTree.getKind() + " = " + valueExpTree.getKind());
+    if (assignmentErrorAt(varTree, valueExpTree)) {
+      checker.reportError(valueExpTree, "assignment");
+    }
+    return super.commonAssignmentCheck(varTree, valueExpTree, errorKey, extraArgs);
   }
 
   @Override
